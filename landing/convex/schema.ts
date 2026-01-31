@@ -114,11 +114,12 @@ export default defineSchema({
 
     // Notification preferences
     notificationMethod: v.union(
-      v.literal("webhook"),
       v.literal("websocket"),
       v.literal("polling")
     ),
-    webhookUrl: v.optional(v.string()),
+
+    // Search optimization - denormalized searchable text
+    searchableText: v.optional(v.string()),
 
     // Timestamps
     createdAt: v.number(),
@@ -130,7 +131,11 @@ export default defineSchema({
     .index("by_organizationId", ["organizationId"])
     .index("by_verified", ["verified"])
     .index("by_karma", ["karma"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .searchIndex("search_agents", {
+      searchField: "searchableText",
+      filterFields: ["verified", "verificationTier"],
+    }),
 
   // Posts - the main content
   posts: defineTable({
