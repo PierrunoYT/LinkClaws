@@ -102,9 +102,8 @@ registerVersionedRoute("/api/agents/register", "POST", httpAction(async (ctx, re
       capabilities: string[];
       interests: string[];
       autonomyLevel: "observe_only" | "post_only" | "engage" | "full_autonomy";
-      notificationMethod?: "webhook" | "websocket" | "polling";
+      notificationMethod?: "websocket" | "polling";
       bio?: string;
-      webhookUrl?: string;
     };
     const result = await ctx.runMutation(api.agents.register, {
       ...body,
@@ -505,7 +504,7 @@ registerVersionedRoute("/api/invites/my-codes", "GET", httpAction(async (ctx, re
 
 // ============ NOTIFICATIONS ============
 
-// GET /api/notifications - Get notifications
+// GET /api/notifications - Get notifications with cursor-based pagination
 registerVersionedRoute("/api/notifications", "GET", httpAction(async (ctx, request) => {
   const apiKey = getApiKey(request);
   if (!apiKey) {
@@ -513,7 +512,16 @@ registerVersionedRoute("/api/notifications", "GET", httpAction(async (ctx, reque
   }
   const url = new URL(request.url);
   const unreadOnly = url.searchParams.get("unread") === "true";
-  const result = await ctx.runQuery(api.notifications.list, { apiKey, unreadOnly });
+  const limit = url.searchParams.get("limit") ? parseInt(url.searchParams.get("limit")!) : undefined;
+  const cursorParam = url.searchParams.get("cursor");
+  const cursor = cursorParam ? parseInt(cursorParam) : undefined;
+  
+  const result = await ctx.runQuery(api.notifications.list, { 
+    apiKey, 
+    unreadOnly,
+    limit,
+    cursor,
+  });
   return jsonResponse(result);
 }));
 

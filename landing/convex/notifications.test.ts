@@ -49,13 +49,14 @@ describe("notifications", () => {
       });
 
       // Get notifications
-      const notifications = await t.query(api.notifications.list, {
+      const result = await t.query(api.notifications.list, {
         apiKey: mentionedKey,
         limit: 10,
       });
 
-      expect(notifications.length).toBeGreaterThanOrEqual(1);
-      expect(notifications.some((n) => n.type === "mention")).toBe(true);
+      expect(result.notifications.length).toBeGreaterThanOrEqual(1);
+      expect(result.notifications.some((n) => n.type === "mention")).toBe(true);
+      expect(result.nextCursor).toBeDefined();
     });
 
     test("should filter unread only", async () => {
@@ -71,12 +72,49 @@ describe("notifications", () => {
       });
 
       // Get unread only
-      const unreadNotifications = await t.query(api.notifications.list, {
+      const result = await t.query(api.notifications.list, {
         apiKey: mentionedKey,
         unreadOnly: true,
       });
 
-      expect(unreadNotifications.every((n) => !n.read)).toBe(true);
+      expect(result.notifications.every((n) => !n.read)).toBe(true);
+    });
+
+    test("should support cursor-based pagination", async () => {
+      const t = convexTest(schema, modules);
+      const { apiKey: posterKey } = await createVerifiedAgent(t, "cursorposter");
+      const { apiKey: mentionedKey } = await createVerifiedAgent(t, "cursormentioned");
+
+      // Create first notification
+      await t.mutation(api.posts.create, {
+        apiKey: posterKey,
+        type: "announcement",
+        content: "First @cursormentioned!",
+      });
+
+      // Get first result and cursor
+      const firstResult = await t.query(api.notifications.list, {
+        apiKey: mentionedKey,
+        limit: 10,
+      });
+      const cursor = firstResult.nextCursor;
+
+      // Create second notification
+      await t.mutation(api.posts.create, {
+        apiKey: posterKey,
+        type: "announcement",
+        content: "Second @cursormentioned!",
+      });
+
+      // Poll with cursor - should only get new notification
+      const secondResult = await t.query(api.notifications.list, {
+        apiKey: mentionedKey,
+        limit: 10,
+        cursor: cursor ?? undefined,
+      });
+
+      expect(secondResult.notifications.length).toBe(1);
+      expect(secondResult.notifications[0].body).toContain("Second");
     });
   });
 
@@ -94,11 +132,11 @@ describe("notifications", () => {
       });
 
       // Get notifications
-      const notifications = await t.query(api.notifications.list, {
+      const listResult = await t.query(api.notifications.list, {
         apiKey: mentionedKey,
         limit: 10,
       });
-      const notifId = notifications[0]._id;
+      const notifId = listResult.notifications[0]._id;
 
       // Mark as read
       const result = await t.mutation(api.notifications.markAsRead, {
@@ -109,11 +147,11 @@ describe("notifications", () => {
       expect(result.success).toBe(true);
 
       // Verify it's marked as read
-      const updatedNotifications = await t.query(api.notifications.list, {
+      const updatedResult = await t.query(api.notifications.list, {
         apiKey: mentionedKey,
         limit: 10,
       });
-      const updatedNotif = updatedNotifications.find((n) => n._id === notifId);
+      const updatedNotif = updatedResult.notifications.find((n) => n._id === notifId);
       expect(updatedNotif?.read).toBe(true);
     });
   });

@@ -19,36 +19,51 @@ const notificationResponseType = v.object({
   createdAt: v.number(),
 });
 
-// Get notifications for an agent
+// Get notifications for an agent with cursor-based pagination
 export const list = query({
   args: {
     apiKey: v.string(),
     limit: v.optional(v.number()),
     unreadOnly: v.optional(v.boolean()),
+    cursor: v.optional(v.number()), // createdAt timestamp - only return notifications newer than this
   },
-  returns: v.array(notificationResponseType),
+  returns: v.object({
+    notifications: v.array(notificationResponseType),
+    nextCursor: v.union(v.number(), v.null()),
+  }),
   handler: async (ctx, args) => {
     const agentId = await verifyApiKey(ctx, args.apiKey);
-    if (!agentId) return [];
+    if (!agentId) return { notifications: [], nextCursor: null };
 
     const limit = args.limit ?? 50;
 
-    let notifications;
+    let query;
     if (args.unreadOnly) {
-      notifications = await ctx.db
+      query = ctx.db
         .query("notifications")
         .withIndex("by_agentId_read", (q) => q.eq("agentId", agentId).eq("read", false))
-        .order("desc")
-        .take(limit);
+        .order("desc");
     } else {
-      notifications = await ctx.db
+      query = ctx.db
         .query("notifications")
         .withIndex("by_agentId_createdAt", (q) => q.eq("agentId", agentId))
-        .order("desc")
-        .take(limit);
+        .order("desc");
     }
 
-    return Promise.all(
+    // If cursor provided, filter to only newer notifications
+    let notifications = await query.take(limit + 1);
+    
+    if (args.cursor) {
+      notifications = notifications.filter(n => n.createdAt > args.cursor!);
+    }
+
+    // Check if there are more results
+    const hasMore = notifications.length > limit;
+    if (hasMore) {
+      notifications = notifications.slice(0, limit);
+    }
+
+    const formattedNotifications = await Promise.all(
       notifications.map(async (n) => {
         let relatedAgentHandle: string | undefined;
         if (n.relatedAgentId) {
@@ -72,6 +87,13 @@ export const list = query({
         };
       })
     );
+
+    // Return the oldest createdAt as cursor for next poll
+    const nextCursor = notifications.length > 0 
+      ? notifications[0].createdAt 
+      : null;
+
+    return { notifications: formattedNotifications, nextCursor };
   },
 });
 
